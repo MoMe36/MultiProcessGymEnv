@@ -2,6 +2,7 @@ import numpy as np
 import multiprocessing as mp 
 from multiprocessing import connection 
 import gym 
+from gym.core import Wrapper 
 
 def worker_process(remote, env, seed): 
 
@@ -17,8 +18,8 @@ def worker_process(remote, env, seed):
             # remote.send(seed)
 
         elif cmd == 'reset': 
-            env.reset()
-            remote.send(seed)
+            s = env.reset()
+            remote.send(s)
 
         elif cmd == 'close': 
             env.close()
@@ -37,12 +38,46 @@ class Worker:
         self.ps = mp.Process(target = worker_process, args = (parent, env, s))
         self.ps.start()
 
+
+class Monitor(Wrapper): 
+
+    def __init__(self, env): 
+
+        super().__init__(env = env)
+
+        self.episode_reward = 0
+        self.episode_length = 0
+
+    def step(self, ac): 
+
+        ns, r, done, infos = super().step(ac)
+        self.episode_reward += r
+        self.episode_length += 1
+        
+        if done: 
+            infos['episode'] = {'r':self.episode_reward, 'l':self.episode_length}
+        else: 
+            infos = {}
+
+        return ns, r, done, infos
+
+    def reset(self): 
+
+        self.episode_reward = 0. 
+        self.episode_length = 0.
+
+        return super().reset()
+
 class VEnv: 
 
     def __init__(self, nb_ps, env_name): 
 
         self.nb_ps = nb_ps
-        self.workers = [Worker(i, gym.make(env_name)) for i in range(self.nb_ps)]
+        self.workers = [Worker(i, Monitor(gym.make(env_name))) for i in range(self.nb_ps)]
+
+        sample_env = gym.make(env_name)
+        self.action_space = sample_env.action_space
+        self.observation_space = sample_env.observation_space 
 
     def reset(self): 
 
@@ -66,10 +101,10 @@ class VEnv:
             data = w.child.recv()
             obs.append(data[0])
             rewards.append(data[1])
-            dones.append(0. if data[2] else 1.)
+            dones.append(data[2])
             infos.append(data[-1])
             
-        return np.vstack(obs), np.array(rewards).reshape(-1,1), np.array(dones).reshape(-1,1)
+        return np.vstack(obs), np.array(rewards).reshape(-1,1), np.stack(dones), infos
 
 # nb_envs = 10
 # envs = VEnv(nb_envs, 'BipedalWalker-v2')
