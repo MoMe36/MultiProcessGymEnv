@@ -68,4 +68,4 @@ class VEnv:
 
 ### Results
 
-![BipedalWalker-perf](./BipedalWalker-v2_rewards.png)
+![BipedalWalker-perf](./ppo/BipedalWalker-v2_rewards.png)
